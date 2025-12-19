@@ -1,10 +1,20 @@
-# ♟️ Quoridor AI & Game Engine
+# Quoridor AI
 
-> A modular Python implementation of the classic strategy board game **Quoridor**. This project features a robust game engine supporting Human vs. Human and Human vs. AI modes, built with object-oriented principles and pathfinding validation.
+> A visually immersive, high-performance Python implementation of the abstract strategy game **Quoridor**. This project features a robust **Minimax AI**, a glowing **Cyberpunk UI**, and advanced gameplay features like **Undo/Redo** and **Pathfinding Validation**.
 
 ---
 
-## 📂 Repository Layout
+## Features
+
+- **Intelligent AI:** A competitive computer opponent powered by **Minimax with Alpha-Beta Pruning**.
+- **Neon Aesthetics:** A polished Cyberpunk visual theme with glowing effects and smooth UI scaling.
+- **Time Travel:** Full **Undo/Redo** support (`Ctrl+Z` / `Ctrl+Y`) to fix mistakes or analyze moves.
+- **Fair Play Engine:** Real-time **BFS Pathfinding** that strictly enforces valid wall placements (no blocking opponents completely).
+- **Dual Modes:** Play locally against a friend (PvP) or challenge the AI (PvE).
+
+---
+
+## Repository Layout
 
 ```text
 
@@ -20,78 +30,37 @@
 
 ---
 
-## 🎯 Gameplay Mechanics
+## Controls
 
-The engine implements the standard Quoridor ruleset on a `9x9` logical grid (mapped internally to a `17x17` matrix to account for wall spaces).
-
-### Key Rules
-
-* **Objective:** The first player to reach any cell on the opposing baseline wins.
-* **Turn Actions:** Choose between moving your pawn or placing a wall.
-* **Wall Logic:** Walls block movement but **cannot** completely seal off a player's path to the goal.
-* **Advanced Movement:** Supports orthogonal moves and diagonal jumps (if an opponent blocks the forward path).
-
----
-
-## 🏗️ Architecture & Classes
-
-### 1. The Board (`Board.py`)
-
-The central controller for the match. It maintains the master state using a `numpy` 2D array.
-
-* **Grid System:**
-* `dimPawnBoard`: **9** (Playable cells)
-* `dimBoard`: **17** (Total matrix size including wall slots)
-
-
-* **Methods:**
-* `__init__(dim, againest_ai)`: Sets up the board and spawns `Player` or `AIPlayer` instances.
-* `get_state()`: Exports the current board configuration for the UI or AI analysis.
-
-
-
-### 2. The Player (`Player.py`)
-
-Handles individual entity state and legal move generation.
-
-* **State Tracking:** Tracks `id` (1 vs 2), current `pos` (coordinates), and `available_walls` inventory.
-* **Movement Logic:**
-* `checkDirection()` & `checkDiagonalDirection()`: Validates standard and complex moves.
-* `move()`: Executes the verified move logic.
-
-
-* **Fair Play Validation:**
-* **BFS Pathfinding:** Uses `WallRestrictionAlgorithmsBFS(new_board)` to simulate wall placement. If a wall makes the goal unreachable for *any* player, the move is rejected.
-
-
+| Action            | Input Key / Mouse                                                      |
+| ----------------- | ---------------------------------------------------------------------- |
+| **Move Pawn**     | `Arrow Keys` (Up, Down, Left, Right)                                   |
+| **Diagonal Jump** | `Q` (Top-Left), `E` (Top-Right), `Z` (Bottom-Left), `C` (Bottom-Right) |
+| **Place Wall**    | **Left Click** on the gap between cells                                |
+| **Undo Move**     | `Ctrl` + `Z`                                                           |
+| **Redo Move**     | `Ctrl` + `Y`                                                           |
+| **Exit Game**     | Click the **EXIT** button on the Winner screen                         |
 
 ---
 
-## 🚀 Getting Started
+## Installation & Run
 
-### Prerequisites
-
-* Python 3.x
-* NumPy
-
-### Installation
-
-**1. Clone the project**
+1. **Clone the Repository:**
 
 ```bash
-git clone https://github.com/your-username/Quoridor-Game-AI-Project.git
-cd Quoridor-Game-AI-Project
+git clone https://github.com/YourUsername/Quoridor-Neon.git
+cd Quoridor-Neon
 
 ```
 
-**2. Install requirements**
+2. **Install Dependencies:**
 
 ```bash
-pip install numpy
+pip install pygame numpy
 
 ```
 
-**3. Launch the engine**
+3. **Launch the Game:**
 
 ```bash
 python main.py
@@ -100,9 +69,32 @@ python main.py
 
 ---
 
-## 🗺️ Roadmap
+## AI Strategy (How it thinks)
 
-* [ ] **AI Development:** Finalize heuristics and decision trees in `AIPlayer.py`.
-* [ ] **Interface:** Build a visual frontend using **Pygame** or **Tkinter**.
-* [ ] **Interaction:** Add a CLI or GUI loop for wall placement.
-* [ ] **Refinement:** Optimize the BFS validation for deeper search trees.
+The AI uses a **Minimax algorithm** optimized with **Alpha-Beta Pruning** to look ahead several turns. It evaluates board states based on:
+
+1. **Path Efficiency:** The difference in shortest path length (A\*) between itself and the opponent.
+2. **Wall Advantage:** The number of walls remaining compared to the opponent.
+3. **Winning Potential:** Immediate priority is given to winning moves or blocking an opponent's win.
+
+---
+
+## Implementation Details
+
+### The Undo/Redo System
+
+To ensure stability, the game uses a **Deep Copy Snapshot** system.
+
+- **Before every move**, the entire board state (grid, positions, walls) is cloned and pushed to a `History Stack`.
+- **Undoing** pops the state and pushes it to a `Redo Stack`.
+- **Making a new move** clears the `Redo Stack` to prevent timeline corruption.
+
+### The Coordinate System
+
+The board uses an internal **17x17 Grid** to represent a logical 9x9 board.
+
+- **Even indices (0, 2, 4...)** represent **Cells** (where pawns stand).
+- **Odd indices (1, 3, 5...)** represent **Gaps** (where walls are placed).
+  This hybrid approach simplifies the logic for checking wall collisions and pathfinding.
+
+---

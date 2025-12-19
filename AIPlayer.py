@@ -1,271 +1,186 @@
 from Player import Player
-from Config import WALL_MOVE_CODE, PAWN_MOVE_CODE, VERTICAL_CONNECTOR_CODE, HORIZONTAL_CONNECTOR_CODE
+from Config import TYPE_PAWN, TYPE_WALL, HORIZONTAL, VERTICAL
 import math
 from collections import deque
 import heapq
 
 class AIPlayer(Player):
-    def __init__(self, *args, search_depth=1, wall_bonus_weight=1, **kwargs):
+    def __init__(self, *args, search_depth=1, wall_bonus_weight=1.5, **kwargs):
         super().__init__(*args, **kwargs)
-        self.search_depth = search_depth
-        self.wall_bonus_weight = wall_bonus_weight
+        self.depth = search_depth
+        self.wall_weight = wall_bonus_weight
 
-    def apply_move(self, virtual_board, move, maximizing_player, is_virtural=True):
-        if is_virtural:
-            new_virtual_board = [
-                [virtual_board[0][0].copy(), virtual_board[0][1]],
-                [virtual_board[1][0].copy(), virtual_board[1][1]],
-                virtual_board[2].copy()
-            ]
+    def ai_move(self):
+        """Main entry point for AI decision making."""
+        state = self.board.get_snapshot()
+        
+        valid_moves = self._get_moves(state, is_max=True)
+        
+        for m in valid_moves:
+            if m[0] == TYPE_PAWN and m[1][0] == self.objective_row:
+                self._apply_move_real(m)
+                return
 
-            if move[0] == PAWN_MOVE_CODE:
-                new_virtual_board[2][virtual_board[maximizing_player][0][0], virtual_board[maximizing_player][0][1]] = 0
-                new_virtual_board[maximizing_player][0] = move[1]
-                new_virtual_board[2][new_virtual_board[maximizing_player][0][0], new_virtual_board[maximizing_player][0][1]] = self.board.p2.id if maximizing_player else self.board.p1.id
+        best_val = -math.inf
+        best_move = None
 
-            else:
-                coordinate1, coordinate2, coordinate3 = move[1]
+        for move in valid_moves:
+            next_state = self._simulate_move(state, move, is_max=True)
+            val = self._minimax(next_state, self.depth, -math.inf, math.inf, False)
+            if val > best_val:
+                best_val = val
+                best_move = move
 
-                new_virtual_board[2][coordinate1[0], coordinate1[1]] = 1
-                new_virtual_board[2][coordinate2[0], coordinate2[1]] = HORIZONTAL_CONNECTOR_CODE if coordinate1[0] == coordinate2[0] else VERTICAL_CONNECTOR_CODE
-                new_virtual_board[2][coordinate3[0], coordinate3[1]] = 1
+        if best_move:
+            self._apply_move_real(best_move)
 
-                new_virtual_board[maximizing_player][1] -= 1
-
-            return new_virtual_board
-        else:
-            board = virtual_board
-            player = board.p2 if maximizing_player else board.p1
-
-            if move[0] == PAWN_MOVE_CODE:
-                board.board[player.pos[0], player.pos[1]] = 0
-                player.pos = move[1]
-                board.board[player.pos[0], player.pos[1]] = player.id
-
-            else:
-                coordinate1, coordinate2, coordinate3 = move[1]
-
-                board.board[coordinate1[0], coordinate1[1]] = 1
-                board.board[coordinate2[0], coordinate2[1]] = HORIZONTAL_CONNECTOR_CODE if coordinate1[0] == coordinate2[0] else VERTICAL_CONNECTOR_CODE
-                board.board[coordinate3[0], coordinate3[1]] = 1
-
-                player.available_walls -= 1
-
-            return board
-
-    def get_valid_moves(self, virtual_board, maximizing_player):
-        moves = []
-
-        # Determine player positions and remaining walls
-        by, bx = virtual_board[1][0] if maximizing_player else virtual_board[0][0]
-        oy, ox = virtual_board[0][0] if maximizing_player else virtual_board[1][0]
-        remaining_walls = virtual_board[1][1] if maximizing_player else virtual_board[0][1]
-
-        # Directions for pawn moves
-        directions = {
-            'up':    (-2, 0, -1, 0),
-            'down':  (2, 0, 1, 0),
-            'left':  (0, -2, 0, -1),
-            'right': (0, 2, 0, 1),
-        }
-
-        # Helper: check path exists from start to any goal row
-        def has_path(board, start, goal_rows):
-            from collections import deque
-            visited = [[False]*self.board.dimBoard for _ in range(self.board.dimBoard)]
-            dq = deque([tuple(start)])
-            visited[start[0]][start[1]] = True
-            while dq:
-                y, x = dq.popleft()
-                if y in goal_rows:
-                    return True
-                for dy, dx, wy, wx in directions.values():
-                    ny, nx = y + dy, x + dx
-                    wy_, wx_ = y + wy, x + wx
-                    if (0 <= ny < self.board.dimBoard and 0 <= nx < self.board.dimBoard
-                            and not board[2][wy_][wx_] and not visited[ny][nx]):
-                        visited[ny][nx] = True
-                        dq.append((ny, nx))
-            return False
-
-        # Generate pawn moves
-        for dy, dx, wy, wx in directions.values():
-            ny, nx = by + dy, bx + dx
-            wall_y, wall_x = by + wy, bx + wx
-            # Skip if wall blocks direct move or out of bounds
-            if not (0 <= wall_y < self.board.dimBoard and 0 <= wall_x < self.board.dimBoard) or virtual_board[2][wall_y][wall_x]:
-                continue
-            # Opponent jump logic
-            if (ny, nx) == (oy, ox):
-                # Attempt jump
-                jy, jx = ny + dy, nx + dx
-                jwy, jwx = ny + wy, nx + wx
-                if (0 <= jy < self.board.dimBoard and 0 <= jx < self.board.dimBoard
-                        and not virtual_board[2][jwy][jwx] and not virtual_board[2][jy][jx]):
-                    moves.append((PAWN_MOVE_CODE, [jy, jx]))
-                    continue
-                # Side steps
-                if dy != 0:
-                    for sdx, swx in [(-2, -1), (2, 1)]:
-                        sy, sx = ny, nx + sdx
-                        swy, swx = ny, nx + swx
-                        if (0 <= sx < self.board.dimBoard
-                                and not virtual_board[2][swy][swx] and not virtual_board[2][sy][sx]):
-                            moves.append((PAWN_MOVE_CODE, [sy, sx]))
-                else:
-                    for sdy, swy in [(-2, -1), (2, 1)]:
-                        sy, sx = ny + sdy, nx
-                        swy, swx = ny + swy, nx
-                        if (0 <= sy < self.board.dimBoard
-                                and not virtual_board[2][swy][swx] and not virtual_board[2][sy][sx]):
-                            moves.append((PAWN_MOVE_CODE, [sy, sx]))
-            else:
-                if (0 <= ny < self.board.dimBoard and 0 <= nx < self.board.dimBoard
-                        and not virtual_board[2][ny][nx]):
-                    moves.append((PAWN_MOVE_CODE, [ny, nx]))
-
-        # Wall placements — ensure not caging any player
-        if remaining_walls > 0:
-            # Define goal rows for each player
-            p2_goal = {
-                True: range(self.objective, self.objective + 1),
-                False: range(self.board.p1.objective, self.board.p1.objective + 1)
-            }
-            p1_goal = {
-                True: range(self.board.p1.objective, self.board.p1.objective + 1),
-                False: range(self.objective, self.objective + 1)
-            }
-            for y in range(1, self.board.dimBoard-1, 2):
-                for x in range(1, self.board.dimBoard-1, 2):
-                    # Try both horizontal and vertical
-                    for coords in [[(y, x-1), (y, x), (y, x+1)], [(y-1, x), (y, x), (y+1, x)]]:
-                        # Check cells free
-                        if any(virtual_board[2][wy][wx] for wy, wx in coords):
-                            continue
-                        # Copy board and place wall
-                        new_b = [
-                            [virtual_board[0][0].copy(), virtual_board[0][1]],
-                            [virtual_board[1][0].copy(), virtual_board[1][1]],
-                            [row.copy() for row in virtual_board[2]]
-                        ]
-                        for wy, wx in coords:
-                            new_b[2][wy][wx] = True
-                        # Ensure both players have a path
-                        if (has_path(new_b, new_b[1][0], p2_goal[maximizing_player]) and
-                                has_path(new_b, new_b[0][0], p1_goal[maximizing_player])):
-                            moves.append((WALL_MOVE_CODE, coords))
-        return moves
-
-
-
-    def heuristic(self, virtual_board):
-        """Heuristic function using A* for both players"""
-        def manhattan_distance(y1, x1, y2):
-            return abs(y1 - y2)  # Only vertical movement matters for goal row
-
-        def a_star_path(y, x, target_row):
-            visited = [[False] * self.board.dimBoard for _ in range(self.board.dimBoard)]
-            heap = [(manhattan_distance(y, x, target_row), 0, y, x)]  # (f, g, y, x)
-
-            while heap:
-                f, g, cy, cx = heapq.heappop(heap)
-                if cy == target_row:
-                    return g
-                if visited[cy][cx]:
-                    continue
-                visited[cy][cx] = True
-
-                # Directions: (dy, dx, wall_y, wall_x)
-                directions = [
-                    (-2, 0, cy - 1, cx),  # Up
-                    (2, 0, cy + 1, cx),   # Down
-                    (0, -2, cy, cx - 1),  # Left
-                    (0, 2, cy, cx + 1)    # Right
-                ]
-
-                for dy, dx, wy, wx in directions:
-                    ny, nx = cy + dy, cx + dx
-                    if 0 <= ny < self.board.dimBoard and 0 <= nx < self.board.dimBoard:
-                        if not virtual_board[2][wy][wx] and not visited[ny][nx]:
-                            h = manhattan_distance(ny, nx, target_row)
-                            heapq.heappush(heap, (g + 1 + h, g + 1, ny, nx))
-
-            return math.inf  # No path found
-
-        p1_path = a_star_path(virtual_board[0][0][0], virtual_board[0][0][1], self.board.p1.objective)
-        p2_path = a_star_path(virtual_board[1][0][0], virtual_board[1][0][1], self.objective)
-
-        path_diff = (p1_path - p2_path) * 4
-        wall_bonus = virtual_board[1][1] * self.wall_bonus_weight
-
-        if p1_path == 0:
-            return -math.inf
-        if p2_path == 0:
-            return math.inf
-
-        return path_diff + wall_bonus
-
-
-
-    def alpha_beta(self, virtual_board, depth, alpha, beta, maximizing_player):
-        """Optimized alpha-beta pruning using virtual_board[2]"""
-        if virtual_board[0][0][0] == self.board.p1.objective:
-            return -math.inf if maximizing_player else math.inf
-        if virtual_board[1][0][0] == self.objective:
-            return math.inf if maximizing_player else -math.inf
-
+    def _minimax(self, state, depth, alpha, beta, is_max):
+        p1_pos, p2_pos = state[0][0], state[1][0]
+        
+        if p1_pos[0] == self.board.p1.objective_row: return -math.inf
+        if p2_pos[0] == self.objective_row: return math.inf
+        
         if depth == 0:
-            return self.heuristic(virtual_board)
+            return self._heuristic(state)
 
-        valid_moves = self.get_valid_moves(virtual_board, maximizing_player)
+        moves = self._get_moves(state, is_max)
+        
+        moves.sort(key=lambda m: 0 if m[0] == TYPE_PAWN else 1)
 
-        valid_moves.sort(key=lambda m: 0 if m[0] == PAWN_MOVE_CODE and (
-            (maximizing_player and m[1][0] == self.board.p2.objective) or
-            (not maximizing_player and m[1][0] == self.board.p1.objective)
-        ) else 1)
-
-        if maximizing_player:
+        if is_max:
             max_eval = -math.inf
-            for move in valid_moves:
-                next_virtual_board = self.apply_move(virtual_board, move, maximizing_player)
-                eval = self.alpha_beta(next_virtual_board, depth - 1, alpha, beta, False)
+            for move in moves:
+                sim_state = self._simulate_move(state, move, True)
+                eval = self._minimax(sim_state, depth - 1, alpha, beta, False)
                 max_eval = max(max_eval, eval)
                 alpha = max(alpha, eval)
-                if beta <= alpha:
-                    break
+                if beta <= alpha: break
             return max_eval
         else:
             min_eval = math.inf
-            for move in valid_moves:
-                next_virtual_board = self.apply_move(virtual_board, move, maximizing_player)
-                eval = self.alpha_beta(next_virtual_board, depth - 1, alpha, beta, True)
+            for move in moves:
+                sim_state = self._simulate_move(state, move, False)
+                eval = self._minimax(sim_state, depth - 1, alpha, beta, True)
                 min_eval = min(min_eval, eval)
                 beta = min(beta, eval)
-                if beta <= alpha:
-                    break
+                if beta <= alpha: break
             return min_eval
 
-    # Update ai_move function
-    def ai_move(self):
-        virtual_board = self.board.get_state()
-
-        best_move = None
-        best_value = -math.inf
-        valid_moves = self.get_valid_moves(virtual_board, True)
-
-        fast_win_move = next((m for m in valid_moves if m[0] == PAWN_MOVE_CODE and m[1][0] == self.board.p2.objective), None)
-
-        if not fast_win_move:
-            for move in valid_moves:
-                next_virtual_board = self.apply_move(virtual_board, move, True)
-                value = self.alpha_beta(next_virtual_board, self.search_depth, -math.inf, math.inf, False)
-
-                if value > best_value:
-                    best_value = value
-                    best_move = move
-
-            self.apply_move(self.board, best_move, True, is_virtural=False)
-
+    def _apply_move_real(self, move):
+        """Executes the chosen move on the actual game board."""
+        if move[0] == TYPE_PAWN:
+            self.board.grid[self.pos[0], self.pos[1]] = 0
+            self.pos = move[1]
+            self.board.grid[self.pos[0], self.pos[1]] = self.id
         else:
-            self.apply_move(self.board, fast_win_move, True, is_virtural=False)
+            c1, c2, c3 = move[1]
+            self.board.grid[c1[0], c1[1]] = 1
+            self.board.grid[c2[0], c2[1]] = HORIZONTAL if c1[0] == c2[0] else VERTICAL
+            self.board.grid[c3[0], c3[1]] = 1
+            self.walls_left -= 1
 
+    def _simulate_move(self, state, move, is_max):
+        """Returns a new state list with the move applied (Virtual)."""
+        new_state = [
+            [state[0][0].copy(), state[0][1]],
+            [state[1][0].copy(), state[1][1]],
+            state[2].copy()
+        ]
+        
+        idx = 1 if is_max else 0
+        
+        if move[0] == TYPE_PAWN:
+            old_r, old_c = new_state[idx][0]
+            new_state[2][old_r, old_c] = 0
+            new_state[idx][0] = move[1]
+            new_r, new_c = move[1]
+            pid = 2 if is_max else 1
+            new_state[2][new_r, new_c] = pid
+        else:
+            c1, c2, c3 = move[1]
+            new_state[2][c1[0], c1[1]] = 1
+            connector = HORIZONTAL if c1[0] == c2[0] else VERTICAL
+            new_state[2][c2[0], c2[1]] = connector
+            new_state[2][c3[0], c3[1]] = 1
+            new_state[idx][1] -= 1 
+            
+        return new_state
+
+    def _get_moves(self, state, is_max):
+        """Generates all legal moves for the virtual state."""
+        moves = []
+        grid = state[2]
+        my_idx = 1 if is_max else 0
+        opp_idx = 0 if is_max else 1
+        
+        pos = state[my_idx][0]
+        opp_pos = state[opp_idx][0]
+        walls = state[my_idx][1]
+        
+        r, c = pos
+        dim = self.board.total_dim
+        
+        steps = [(-2,0,-1,0), (2,0,1,0), (0,-2,0,-1), (0,2,0,1)]
+        
+        for dr, dc, wr, wc in steps:
+            nr, nc = r+dr, c+dc
+            wall_r, wall_c = r+wr, c+wc
+            
+            if 0 <= nr < dim and 0 <= nc < dim:
+                if 0 <= wall_r < dim and 0 <= wall_c < dim and grid[wall_r, wall_c] == 0:
+                    if (nr, nc) == (tuple(opp_pos)):
+                        jr, jc = nr+dr, nc+dc
+                        jw_r, jw_c = nr+wr, nc+wc
+                        if 0 <= jr < dim and 0 <= jc < dim and grid[jw_r, jw_c] == 0:
+                            moves.append((TYPE_PAWN, [jr, jc]))
+                        else:
+                            pass 
+                    else:
+                        moves.append((TYPE_PAWN, [nr, nc]))
+
+        if walls > 0:
+            for y in range(1, dim-1, 2):
+                for x in range(1, dim-1, 2):
+                    orientations = [
+                        [(y, x-1), (y, x), (y, x+1)], 
+                        [(y-1, x), (y, x), (y+1, x)]  
+                    ]
+                    for coords in orientations:
+                        if all(grid[wy, wx] == 0 for wy, wx in coords):
+                            test_grid = grid.copy()
+                            for wy, wx in coords: test_grid[wy, wx] = 1
+                            
+                            if self._has_path(test_grid, state[0][0], self.board.p1.objective_row) and \
+                               self._has_path(test_grid, state[1][0], self.objective_row):
+                                moves.append((TYPE_WALL, coords))
+                                
+        return moves
+
+    def _has_path(self, grid, start, goal_row):
+        q = deque([tuple(start)])
+        seen = {tuple(start)}
+        dim = self.board.total_dim
+        while q:
+            r, c = q.popleft()
+            if r == goal_row: return True
+            for dr, dc, wr, wc in [(-2,0,-1,0), (2,0,1,0), (0,-2,0,-1), (0,2,0,1)]:
+                nr, nc = r+dr, c+dc
+                w_r, w_c = r+wr, c+wc
+                if 0 <= nr < dim and 0 <= nc < dim:
+                    if grid[w_r, w_c] == 0 and grid[nr, nc] == 0:
+                        if (nr, nc) not in seen:
+                            seen.add((nr, nc))
+                            q.append((nr, nc))
+        return False
+
+    def _heuristic(self, state):
+        p1_r, p1_c = state[0][0]
+        p2_r, p2_c = state[1][0]
+        
+        dist_p1 = abs(p1_r - self.board.p1.objective_row)
+        dist_p2 = abs(p2_r - self.objective_row)
+        
+        score = dist_p1 - dist_p2
+        
+        score += state[1][1] * self.wall_weight
+        return score
